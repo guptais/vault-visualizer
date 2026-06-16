@@ -174,6 +174,16 @@ const CURRENCIES = {
 const MAX_STACK_MM = 1000; // 1 m cap
 const MM = 0.001; // mm → metres (Three.js units)
 
+// Real RBA banknote photos (downloaded locally to avoid CORS)
+const NOTE_URLS = {
+  100: 'notes/aud100.jpg',
+   50: 'notes/aud50.jpg',
+   20: 'notes/aud20.jpg',
+   10: 'notes/aud10.jpg',
+    5: 'notes/aud5.jpg',
+};
+const noteTexCache = {};  // denom → THREE.Texture (survives rebuilds)
+
 let currKey = 'AUD_100';
 let amount  = 1_000_000;
 
@@ -378,6 +388,26 @@ function makeTopTex(col, denom) {
   const t = new THREE.CanvasTexture(cv);
   t.colorSpace = THREE.SRGBColorSpace;
   return t;
+}
+
+// Returns cached photo texture (async load from RBA), falls back to canvas
+function getTopTex(baseCol, denom) {
+  if (!noteTexCache[denom]) {
+    noteTexCache[denom] = makeTopTex(baseCol, denom);  // canvas placeholder
+    if (NOTE_URLS[denom]) {
+      new THREE.TextureLoader().load(
+        NOTE_URLS[denom],
+        tex => {
+          tex.colorSpace = THREE.SRGBColorSpace;
+          noteTexCache[denom].dispose();
+          noteTexCache[denom] = tex;
+          // Swap in real photo if this denom still selected
+          if (CURRENCIES[currKey].denom === denom) buildStacks();
+        }
+      );
+    }
+  }
+  return noteTexCache[denom];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -592,10 +622,10 @@ function buildStacks() {
   const sideCol  = baseCol.clone().multiplyScalar(0.52);
   const visLines = Math.max(8, Math.min(numBills, 70));
 
-  // Shared textures for this build
+  // sideTex is per-build; topTex lives in noteTexCache (not disposed on rebuild)
   const sideTex = makeSideTex(baseCol, visLines);
-  const topTex  = makeTopTex(baseCol, curr.denom);
-  activeTex.push(sideTex, topTex);
+  const topTex  = getTopTex(baseCol, curr.denom);
+  activeTex.push(sideTex);
 
   // BoxGeometry(bW, cH, bH) face order:
   //   [0]+X  [1]-X  →  narrow end faces  (bH × cH)
@@ -629,16 +659,14 @@ function buildStacks() {
     body.receiveShadow = true;
     col.add(body);
 
-    // ── Fanned cap (3 slightly splayed top bills) ─────────────────────────────
+    // ── Fanned cap (3 slightly splayed top bills) — reuse shared topTex ────────
     for (let k = 0; k < 3; k++) {
-      const ct = makeTopTex(baseCol, curr.denom);
-      activeTex.push(ct);
       const cap = new THREE.Mesh(
         new THREE.BoxGeometry(bW * 1.003, bT * 5, bH * 1.002),
         [
           new THREE.MeshStandardMaterial({ color: sideCol, roughness: 0.82 }),
           new THREE.MeshStandardMaterial({ color: sideCol, roughness: 0.82 }),
-          new THREE.MeshStandardMaterial({ map: ct, roughness: 0.52 }),
+          new THREE.MeshStandardMaterial({ map: topTex, roughness: 0.52 }),
           new THREE.MeshStandardMaterial({ color: sideCol, roughness: 0.82 }),
           new THREE.MeshStandardMaterial({ color: sideCol, roughness: 0.82 }),
           new THREE.MeshStandardMaterial({ color: sideCol, roughness: 0.82 }),

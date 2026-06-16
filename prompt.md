@@ -1,4 +1,5 @@
-**Build a 3D Vault Visualizer web app using Three.js (single HTML file, no build step).**
+**Build a 3D Vault Visualizer web app using Three.js (no build step).**
+_stacks of polymer-textured banknotes in a vault room you can orbit around._  
 
 The app visualizes a monetary amount as physical stacks of cash in a 3D vault room. Port and extend this existing 2D canvas version: [paste your HTML file contents here]
 
