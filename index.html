@@ -53,6 +53,15 @@ input[type=text] { width: 140px; }
 }
 .quick-btn:hover { background: rgba(212,168,67,0.18); }
 .quick-btn.active { background: #d4a843; color: #000; border-color: #d4a843; }
+.mode-btns { display: flex; gap: 4px; }
+.mode-btn {
+  background: rgba(212,168,67,0.08); color: #d4a843;
+  border: 1px solid rgba(212,168,67,0.25); border-radius: 5px;
+  padding: 5px 11px; font-size: 11px; font-weight: 700;
+  cursor: pointer; font-family: 'Space Mono', monospace; transition: all 0.15s;
+}
+.mode-btn:hover { background: rgba(212,168,67,0.18); }
+.mode-btn.active { background: #d4a843; color: #000; border-color: #d4a843; }
 /* min-height:0 is critical — prevents flex child from refusing to shrink */
 #canvas-wrap { flex: 1; min-height: 0; position: relative; overflow: hidden; }
 /* CSS owns display size; Three.js owns internal resolution */
@@ -121,6 +130,20 @@ input[type=text] { width: 140px; }
     </div>
   </div>
   <div class="ctrl-group">
+    <label>View</label>
+    <div class="mode-btns">
+      <button class="mode-btn active" data-mode="bills">💵 Bills</button>
+      <button class="mode-btn" data-mode="coins">🪙 Coins</button>
+    </div>
+  </div>
+  <div class="ctrl-group" id="coin-denom-group" style="display:none">
+    <label>Coin</label>
+    <div class="mode-btns">
+      <button class="mode-btn" data-cdenom="1">$1</button>
+      <button class="mode-btn active" data-cdenom="2">$2</button>
+    </div>
+  </div>
+  <div class="ctrl-group">
     <label>Quick Pick</label>
     <div class="quick-btns">
       <button class="quick-btn" data-val="10000">10K</button>
@@ -138,9 +161,9 @@ input[type=text] { width: 140px; }
 </div>
 
 <div id="stats">
-  <div class="stat"><div class="stat-val" id="s-notes">—</div><div class="stat-label">Notes</div></div>
-  <div class="stat"><div class="stat-val" id="s-stacks">—</div><div class="stat-label">Stacks</div></div>
-  <div class="stat"><div class="stat-val" id="s-height">—</div><div class="stat-label">Total Height</div></div>
+  <div class="stat"><div class="stat-val" id="s-notes">—</div><div class="stat-label" id="sl-notes">Notes</div></div>
+  <div class="stat"><div class="stat-val" id="s-stacks">—</div><div class="stat-label" id="sl-stacks">Stacks</div></div>
+  <div class="stat"><div class="stat-val" id="s-height">—</div><div class="stat-label" id="sl-height">Total Height</div></div>
   <div class="stat"><div class="stat-val" id="s-vol">—</div><div class="stat-label">Volume (m³)</div></div>
   <div class="stat"><div class="stat-val" id="s-rooms">—</div><div class="stat-label">Rooms (4×4×2.5m)</div></div>
   <div class="stat"><div class="stat-val" id="s-weight">—</div><div class="stat-label">Weight</div></div>
@@ -185,8 +208,16 @@ const NOTE_URLS = {
 };
 const noteTexCache = {};  // denom → THREE.Texture (survives rebuilds)
 
-let currKey = 'AUD_100';
-let amount  = 1_000_000;
+let currKey   = 'AUD_100';
+let amount    = 1_000_000;
+let viewMode  = 'bills';
+let coinDenom = 2; // $1 or $2
+
+// AUD coin physical specs: [diam_mm, thick_mm, weight_g]
+const COIN_SPECS = {
+  1: { r: 0.0125, t: 0.0028, g: 9.0,  color: 0xC8960A }, // $1: 25mm, 2.8mm, 9g
+  2: { r: 0.01025, t: 0.003, g: 6.6,  color: 0xB8860B }, // $2: 20.5mm, 3mm, 6.6g
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Canvas texture generators
@@ -409,6 +440,116 @@ function getTopTex(baseCol, denom) {
     }
   }
   return noteTexCache[denom];
+}
+
+// Gold coin face texture for the pile
+function makeCoinTex() {
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = 256;
+  const c = cv.getContext('2d');
+  const grd = c.createRadialGradient(96, 80, 10, 128, 128, 128);
+  grd.addColorStop(0,   '#FFF4B0');
+  grd.addColorStop(0.4, '#F0C030');
+  grd.addColorStop(0.8, '#C8960A');
+  grd.addColorStop(1,   '#8B6914');
+  c.fillStyle = grd;
+  c.beginPath(); c.arc(128, 128, 122, 0, Math.PI * 2); c.fill();
+  c.strokeStyle = '#7A5C10'; c.lineWidth = 8;
+  c.beginPath(); c.arc(128, 128, 118, 0, Math.PI * 2); c.stroke();
+  c.strokeStyle = 'rgba(255,240,100,0.45)'; c.lineWidth = 3;
+  c.beginPath(); c.arc(128, 128, 100, 0, Math.PI * 2); c.stroke();
+  c.fillStyle = 'rgba(90,55,0,0.58)';
+  c.font = 'bold 100px Georgia, serif';
+  c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.fillText('$', 128, 136);
+  c.fillStyle = 'rgba(255,255,255,0.32)';
+  c.beginPath(); c.ellipse(88, 74, 38, 18, -Math.PI / 5, 0, Math.PI * 2); c.fill();
+  const t = new THREE.CanvasTexture(cv);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+// ─── Scrooge McDuck coin pile ──────────────────────────────────────────────
+function buildCoinPile() {
+  clearGroup(stackGroup);
+  if (!amount) return;
+
+  const spec    = COIN_SPECS[coinDenom];
+  const numCoins = Math.round(amount / coinDenom); // coins needed
+  const COIN_R  = spec.r;
+  const COIN_T  = spec.t;
+  const COIN_G  = spec.g;
+
+  const coinVol = Math.PI * COIN_R * COIN_R * COIN_T;
+  const totalVol = numCoins * coinVol;
+
+  // Cone pile: V = (1/3)πR²H, H = R·tan(35°) ≈ 0.7R
+  const pileR = Math.cbrt(totalVol * 3 / (Math.PI * 0.7));
+  const pileH = pileR * 0.7;
+  const maxR  = Math.min(pileR, ROOM_W / 2 - 0.4);
+  const rScale = pileR > 0 ? maxR / pileR : 1;
+  const maxH   = pileH * rScale;
+
+  const MAX_VIS = 50000;
+  const vis = Math.min(numCoins, MAX_VIS);
+
+  const coinTex = makeCoinTex();
+  activeTex.push(coinTex);
+
+  const geo     = new THREE.CylinderGeometry(COIN_R, COIN_R, COIN_T, 18);
+  const faceMat = new THREE.MeshStandardMaterial({ map: coinTex, metalness: 0.85, roughness: 0.22 });
+  const edgeMat = new THREE.MeshStandardMaterial({ color: spec.color, metalness: 0.92, roughness: 0.18 });
+  const mesh    = new THREE.InstancedMesh(geo, [edgeMat, faceMat, faceMat], vis);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+
+  const dummy = new THREE.Object3D();
+  for (let i = 0; i < vis; i++) {
+    const r  = maxR * Math.pow(Math.random(), 0.65); // denser at center
+    const θ  = Math.random() * Math.PI * 2;
+    const cH = maxH * Math.max(0, 1 - r / maxR);    // cone profile
+    const y  = COIN_T / 2 + Math.random() * Math.max(cH, COIN_T * 2);
+    dummy.position.set(r * Math.cos(θ), y, r * Math.sin(θ));
+    dummy.rotation.set(
+      (Math.random() - 0.5) * 0.4,
+      Math.random() * Math.PI * 2,
+      (Math.random() - 0.5) * 0.4
+    );
+    dummy.updateMatrix();
+    mesh.setMatrixAt(i, dummy.matrix);
+  }
+  mesh.instanceMatrix.needsUpdate = true;
+  stackGroup.add(mesh);
+
+  // Stats
+  const ROOM_VOL = 40;
+  const volStr = totalVol < 0.001
+    ? (totalVol * 1e6).toFixed(0) + 'cm³'
+    : totalVol.toFixed(3) + 'm³';
+  const rooms  = totalVol / ROOM_VOL;
+  const roomStr = rooms < 0.001 ? '<0.001' : rooms < 1 ? rooms.toFixed(3) : rooms.toFixed(1);
+  const wKg = numCoins * COIN_G / 1000;
+  const wStr = wKg >= 1e6 ? (wKg/1e6).toFixed(2)+'t'
+             : wKg >= 1   ? wKg.toFixed(1)+'kg'
+             : (wKg*1000).toFixed(0)+'g';
+
+  document.getElementById('sl-notes').textContent  = `$${coinDenom} Coins`;
+  document.getElementById('sl-stacks').textContent = 'Pile Radius';
+  document.getElementById('sl-height').textContent = 'Pile Height';
+  document.getElementById('s-notes').textContent   = fmtNum(numCoins);
+  document.getElementById('s-stacks').textContent  = pileR.toFixed(2) + 'm';
+  document.getElementById('s-height').textContent  = pileH.toFixed(2) + 'm';
+  document.getElementById('s-vol').textContent     = volStr;
+  document.getElementById('s-rooms').textContent   = roomStr;
+  document.getElementById('s-weight').textContent  = wStr;
+
+  const warn = document.getElementById('cap-warn');
+  if (pileR > maxR) {
+    warn.style.display = 'block';
+    warn.textContent = `⚠ Pile too large for room — shown at ${Math.round(rScale*100)}% scale`;
+  } else {
+    warn.style.display = 'none';
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -689,19 +830,26 @@ function buildStacks() {
   const totalH = totalMM >= 1000
     ? (totalMM / 1000).toFixed(2) + 'm'
     : Math.round(totalMM) + 'mm';
-  const volCm3 = numBills * (curr.w / 10) * (curr.h / 10) * (curr.thick / 10);
-  const volStr = volCm3 >= 1e6 ? (volCm3/1e6).toFixed(2) + 'm³'
-               : volCm3 >= 1e3 ? (volCm3/1e3).toFixed(2) + 'L'
-               : volCm3.toFixed(0) + 'cm³';
+  const volM3  = numBills * (curr.w * curr.h * curr.thick) / 1e9; // mm³ → m³
+  const volStr = volM3 < 0.001
+    ? (volM3 * 1e6).toFixed(0) + 'cm³'
+    : volM3.toFixed(3) + 'm³';
+  const ROOM_VOL = 40; // 4×4×2.5m standard room
+  const rooms  = volM3 / ROOM_VOL;
+  const roomStr = rooms < 0.001 ? '<0.001' : rooms < 1 ? rooms.toFixed(3) : rooms.toFixed(1);
   const wStr   = numBills >= 1e6 ? (numBills/1e6).toFixed(2) + 't'
                : numBills >= 1e3 ? (numBills/1e3).toFixed(2) + 'kg'
                : numBills.toFixed(0) + 'g';
 
-  document.getElementById('s-notes').textContent  = fmtNum(Math.round(numBills));
-  document.getElementById('s-stacks').textContent = numCols;
-  document.getElementById('s-height').textContent = totalH;
-  document.getElementById('s-vol').textContent    = volStr;
-  document.getElementById('s-weight').textContent = wStr;
+  document.getElementById('sl-notes').textContent  = 'Notes';
+  document.getElementById('sl-stacks').textContent = 'Stacks';
+  document.getElementById('sl-height').textContent = 'Total Height';
+  document.getElementById('s-notes').textContent   = fmtNum(Math.round(numBills));
+  document.getElementById('s-stacks').textContent  = numCols;
+  document.getElementById('s-height').textContent  = totalH;
+  document.getElementById('s-vol').textContent     = volStr;
+  document.getElementById('s-rooms').textContent   = roomStr;
+  document.getElementById('s-weight').textContent  = wStr;
 
   const warn = document.getElementById('cap-warn');
   if (numCols > 1) {
@@ -729,10 +877,14 @@ function syncCurrency() {
   document.getElementById('currency-name').textContent   = c.name;
 }
 
+function rebuild() {
+  viewMode === 'coins' ? buildCoinPile() : buildStacks();
+}
+
 sel.addEventListener('change', e => {
   currKey = e.target.value;
   syncCurrency();
-  buildStacks();
+  rebuild();
 });
 
 const amtInput = document.getElementById('amount-input');
@@ -741,7 +893,7 @@ amtInput.addEventListener('input', e => {
   if (/^\d*$/.test(raw)) {
     amount = parseInt(raw) || 0;
     e.target.value = raw ? parseInt(raw).toLocaleString() : '';
-    buildStacks();
+    rebuild();
   }
 });
 
@@ -751,7 +903,28 @@ document.querySelectorAll('.quick-btn').forEach(btn => {
     btn.classList.add('active');
     amount = parseInt(btn.dataset.val);
     amtInput.value = amount.toLocaleString();
-    buildStacks();
+    rebuild();
+  });
+});
+
+document.querySelectorAll('[data-mode]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('[data-mode]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    viewMode = btn.dataset.mode;
+    const isCoins = viewMode === 'coins';
+    document.getElementById('currency-select').closest('.ctrl-group').style.opacity = isCoins ? '0.35' : '1';
+    document.getElementById('coin-denom-group').style.display = isCoins ? '' : 'none';
+    rebuild();
+  });
+});
+
+document.querySelectorAll('[data-cdenom]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('[data-cdenom]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    coinDenom = parseInt(btn.dataset.cdenom);
+    rebuild();
   });
 });
 
@@ -768,7 +941,7 @@ function animate() {
 }
 
 resize();
-buildStacks();
+rebuild();
 animate();
 </script>
 </body>
