@@ -672,7 +672,7 @@ function buildStacks() {
           new THREE.MeshStandardMaterial({ color: sideCol, roughness: 0.82 }),
         ]
       );
-      cap.position.set((k - 1) * 0.004, cH + bT * 2.5, (k - 1) * 0.002);
+      cap.position.set((k - 1) * 0.004, cH + bT * 2.5 + k * 0.00025, (k - 1) * 0.002);
       cap.rotation.y = (k - 1) * 0.018;
       cap.castShadow = true;
       col.add(cap);
