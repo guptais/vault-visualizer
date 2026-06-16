@@ -437,8 +437,8 @@ function getTopTex(baseCol, denom) {
           tex.colorSpace = THREE.SRGBColorSpace;
           noteTexCache[denom].dispose();
           noteTexCache[denom] = tex;
-          // Swap in real photo if this denom still selected
-          if (CURRENCIES[currKey].denom === denom) buildStacks();
+          // Swap in real photo if this denom still selected and in bills mode
+          if (viewMode === 'bills' && CURRENCIES[currKey].denom === denom) rebuild();
         }
       );
     }
