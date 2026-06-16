@@ -614,20 +614,24 @@ function resize() {
 // ─────────────────────────────────────────────────────────────────────────────
 // Lighting
 // ─────────────────────────────────────────────────────────────────────────────
-scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+scene.add(new THREE.AmbientLight(0xffffff, 1.1));
 
-const keyLight = new THREE.PointLight(0xffd4a0, 5, 16);
+const keyLight = new THREE.PointLight(0xffd4a0, 8, 18);
 keyLight.position.set(0, 2.85, 0);
 keyLight.castShadow = true;
 keyLight.shadow.mapSize.set(1024, 1024);
 keyLight.shadow.camera.near = 0.1;
-keyLight.shadow.camera.far  = 16;
+keyLight.shadow.camera.far  = 18;
 keyLight.shadow.bias = -0.002;
 scene.add(keyLight);
 
-const fillLight = new THREE.PointLight(0x6080c0, 1.5, 14);
+const fillLight = new THREE.PointLight(0x80a0d0, 3, 16);
 fillLight.position.set(-3, 1.5, 3);
 scene.add(fillLight);
+
+const backLight = new THREE.PointLight(0xffeedd, 4, 14);
+backLight.position.set(2.5, 2.0, -2.5);
+scene.add(backLight);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Vault room
