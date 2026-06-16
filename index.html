@@ -1,0 +1,746 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🏦 Vault Visualizer 3D</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  background: #0a0a0f; color: #fff;
+  font-family: 'Space Grotesk', sans-serif;
+  display: flex; flex-direction: column;
+  height: 100vh; overflow: hidden;
+}
+#header {
+  padding: 10px 20px; text-align: center;
+  background: rgba(0,0,0,0.7);
+  border-bottom: 1px solid rgba(212,168,67,0.2);
+  flex-shrink: 0;
+}
+#header h1 { font-size: 20px; font-weight: 800; color: #d4a843; letter-spacing: -0.5px; }
+#header p  { font-size: 11px; color: #64748b; margin-top: 2px; }
+#controls {
+  padding: 8px 16px;
+  background: rgba(0,0,0,0.55);
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  display: flex; gap: 14px; align-items: center;
+  justify-content: center; flex-wrap: wrap; flex-shrink: 0;
+}
+.ctrl-group label {
+  display: block; font-size: 10px; color: #64748b;
+  text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 3px;
+  font-family: 'Space Mono', monospace;
+}
+select, input[type=text] {
+  background: #111827; color: #fff;
+  border: 1px solid rgba(212,168,67,0.3); border-radius: 6px;
+  padding: 5px 10px; font-size: 13px;
+  font-family: 'Space Grotesk', sans-serif; outline: none;
+}
+select:focus, input:focus { border-color: #d4a843; }
+input[type=text] { width: 140px; }
+.amount-wrap { display: flex; align-items: center; gap: 6px; }
+#currency-symbol { font-size: 16px; font-weight: 700; color: #d4a843; }
+.quick-btns { display: flex; gap: 5px; flex-wrap: wrap; }
+.quick-btn {
+  background: rgba(212,168,67,0.08); color: #d4a843;
+  border: 1px solid rgba(212,168,67,0.25); border-radius: 5px;
+  padding: 5px 9px; font-size: 11px; font-weight: 700;
+  cursor: pointer; font-family: 'Space Mono', monospace; transition: all 0.15s;
+}
+.quick-btn:hover { background: rgba(212,168,67,0.18); }
+.quick-btn.active { background: #d4a843; color: #000; border-color: #d4a843; }
+/* min-height:0 is critical — prevents flex child from refusing to shrink */
+#canvas-wrap { flex: 1; min-height: 0; position: relative; overflow: hidden; }
+/* CSS owns display size; Three.js owns internal resolution */
+#canvas-wrap > canvas {
+  position: absolute; top: 0; left: 0;
+  width: 100% !important; height: 100% !important;
+}
+#label-overlay {
+  position: absolute; top: 0; left: 0;
+  width: 100%; height: 100%;
+  pointer-events: none; overflow: hidden;
+}
+.stack-label {
+  background: rgba(0,0,0,0.82); color: #d4a843;
+  padding: 2px 7px; border-radius: 4px; font-size: 11px;
+  font-family: 'Space Mono', monospace; font-weight: 700;
+  border: 1px solid rgba(212,168,67,0.4); white-space: nowrap; user-select: none;
+}
+.person-label {
+  background: rgba(0,0,0,0.65); color: #94a3b8;
+  padding: 2px 6px; border-radius: 4px; font-size: 10px;
+  font-family: 'Space Mono', monospace;
+  border: 1px solid rgba(148,163,184,0.3); white-space: nowrap; user-select: none;
+}
+#stats {
+  padding: 7px 16px; background: rgba(0,0,0,0.65);
+  border-top: 1px solid rgba(255,255,255,0.06);
+  display: flex; gap: 14px; justify-content: center;
+  flex-wrap: wrap; flex-shrink: 0;
+}
+.stat { text-align: center; min-width: 80px; }
+.stat-val { font-size: 15px; font-weight: 700; color: #d4a843; font-family: 'Space Mono', monospace; }
+.stat-label { font-size: 10px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 1px; }
+#cap-warn {
+  display: none; position: absolute; bottom: 10px; left: 50%;
+  transform: translateX(-50%);
+  background: rgba(231,76,60,0.18); border: 1px solid rgba(231,76,60,0.4);
+  color: #ff8a80; padding: 5px 14px; border-radius: 8px;
+  font-size: 12px; font-family: 'Space Mono', monospace;
+  white-space: nowrap; pointer-events: none; z-index: 10;
+}
+#hint {
+  position: absolute; top: 8px; right: 10px; font-size: 10px;
+  color: #334155; font-family: 'Space Mono', monospace;
+  pointer-events: none; z-index: 5;
+}
+</style>
+</head>
+<body>
+
+<div id="header">
+  <h1>🏦 Vault Visualizer</h1>
+  <p>How much physical space does your money take?</p>
+</div>
+
+<div id="controls">
+  <div class="ctrl-group">
+    <label>AUD Denomination</label>
+    <select id="currency-select"></select>
+  </div>
+  <div class="ctrl-group">
+    <label>Amount (<span id="currency-name">USD</span>)</label>
+    <div class="amount-wrap">
+      <span id="currency-symbol">$</span>
+      <input type="text" id="amount-input" value="1,000,000">
+    </div>
+  </div>
+  <div class="ctrl-group">
+    <label>Quick Pick</label>
+    <div class="quick-btns">
+      <button class="quick-btn" data-val="10000">10K</button>
+      <button class="quick-btn" data-val="100000">100K</button>
+      <button class="quick-btn active" data-val="1000000">1M</button>
+      <button class="quick-btn" data-val="10000000">10M</button>
+      <button class="quick-btn" data-val="1000000000">1B</button>
+    </div>
+  </div>
+</div>
+
+<div id="canvas-wrap">
+  <div id="hint">drag to orbit · scroll to zoom</div>
+  <div id="cap-warn"></div>
+</div>
+
+<div id="stats">
+  <div class="stat"><div class="stat-val" id="s-notes">—</div><div class="stat-label">Notes</div></div>
+  <div class="stat"><div class="stat-val" id="s-stacks">—</div><div class="stat-label">Stacks</div></div>
+  <div class="stat"><div class="stat-val" id="s-height">—</div><div class="stat-label">Total Height</div></div>
+  <div class="stat"><div class="stat-val" id="s-vol">—</div><div class="stat-label">Volume</div></div>
+  <div class="stat"><div class="stat-val" id="s-weight">—</div><div class="stat-label">Weight</div></div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Currency data  (all dimensions in mm, weight 1 g/note)
+// ─────────────────────────────────────────────────────────────────────────────
+// AUD polymer notes — real dimensions (mm), accurate colours
+const CURRENCIES = {
+  AUD_100: { label:'$100', symbol:'$', name:'AUD', denom:100, thick:0.1, w:158, h:65, color:0x00897B }, // teal-green
+  AUD_50:  { label:'$50',  symbol:'$', name:'AUD', denom:50,  thick:0.1, w:151, h:65, color:0xF9A825 }, // amber-gold
+  AUD_20:  { label:'$20',  symbol:'$', name:'AUD', denom:20,  thick:0.1, w:144, h:65, color:0xC62828 }, // deep red
+  AUD_10:  { label:'$10',  symbol:'$', name:'AUD', denom:10,  thick:0.1, w:137, h:65, color:0x1565C0 }, // blue
+  AUD_5:   { label:'$5',   symbol:'$', name:'AUD', denom:5,   thick:0.1, w:130, h:65, color:0xAD1457 }, // pink-magenta
+};
+
+const MAX_STACK_MM = 1000; // 1 m cap
+const MM = 0.001; // mm → metres (Three.js units)
+
+let currKey = 'AUD_100';
+let amount  = 1_000_000;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Canvas texture generators
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Side texture: polymer edge — tightly stacked note edges with gloss
+function makeSideTex(col, lineCount) {
+  const W = 512, H = 512;
+  const cv = document.createElement('canvas');
+  cv.width = W; cv.height = H;
+  const c = cv.getContext('2d');
+
+  // Base: darkened note colour
+  const r = Math.round(col.r * 255 * 0.50);
+  const g = Math.round(col.g * 255 * 0.50);
+  const b = Math.round(col.b * 255 * 0.50);
+  c.fillStyle = `rgb(${r},${g},${b})`;
+  c.fillRect(0, 0, W, H);
+
+  // Left/right edge shadows → curvature feel
+  const eg = c.createLinearGradient(0, 0, W, 0);
+  eg.addColorStop(0,    'rgba(0,0,0,0.42)');
+  eg.addColorStop(0.06, 'rgba(0,0,0,0.04)');
+  eg.addColorStop(0.94, 'rgba(0,0,0,0.04)');
+  eg.addColorStop(1,    'rgba(0,0,0,0.42)');
+  c.fillStyle = eg; c.fillRect(0, 0, W, H);
+
+  // Bill-edge lines
+  const n = Math.min(Math.ceil(lineCount), 70);
+  for (let i = 0; i <= n; i++) {
+    const y = Math.round((i / n) * H);
+    // Dark crease
+    c.fillStyle = 'rgba(0,0,0,0.55)';  c.fillRect(0, y, W, 1);
+    // Polymer gloss glint
+    c.fillStyle = 'rgba(255,255,255,0.22)'; c.fillRect(0, y + 1, W, 1);
+    // Colour band between bills (alternating slight brightness)
+    if (i < n) {
+      const alt = (i % 2 === 0) ? 0.03 : 0.0;
+      c.fillStyle = `rgba(255,255,255,${alt})`;
+      c.fillRect(0, y + 2, W, Math.max(1, Math.round(H / n) - 2));
+    }
+  }
+
+  // Polymer sheen (diagonal gloss streak)
+  const pg = c.createLinearGradient(0, 0, W * 0.4, H);
+  pg.addColorStop(0,   'rgba(255,255,255,0.10)');
+  pg.addColorStop(0.5, 'rgba(255,255,255,0.02)');
+  pg.addColorStop(1,   'rgba(255,255,255,0.00)');
+  c.fillStyle = pg; c.fillRect(0, 0, W, H);
+
+  const t = new THREE.CanvasTexture(cv);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+// Top texture: AUD polymer note face
+// AUD notes have: clear window strip, guilloché background, portrait, large denom, "AUSTRALIA"
+function makeTopTex(col, denom) {
+  const W = 768, H = 320; // wider canvas = more detail
+  const cv = document.createElement('canvas');
+  cv.width = W; cv.height = H;
+  const c = cv.getContext('2d');
+
+  const r = col.r * 255, g = col.g * 255, b = col.b * 255;
+  const ri = Math.round(r), gi = Math.round(g), bi = Math.round(b);
+
+  // ── Base colour fill ────────────────────────────────────────────────────────
+  c.fillStyle = `rgb(${ri},${gi},${bi})`;
+  c.fillRect(0, 0, W, H);
+
+  // Subtle top-to-bottom gradient (notes are lighter at top)
+  const bg = c.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0,   'rgba(255,255,255,0.14)');
+  bg.addColorStop(0.5, 'rgba(255,255,255,0.03)');
+  bg.addColorStop(1,   'rgba(0,0,0,0.10)');
+  c.fillStyle = bg; c.fillRect(0, 0, W, H);
+
+  // ── Guilloché background (fine wavy security lines) ────────────────────────
+  c.save();
+  for (let row = 0; row < 28; row++) {
+    const dr = Math.round(r * 0.76), dg = Math.round(g * 0.76), db = Math.round(b * 0.76);
+    c.strokeStyle = `rgba(${dr},${dg},${db},0.40)`;
+    c.lineWidth = 0.7;
+    c.beginPath();
+    for (let x = 0; x <= W * 0.78; x += 2) {
+      const amp = 4.5 + 2.5 * Math.sin(row * 1.2 + 0.4);
+      const y   = (row / 27) * H + amp * Math.sin(x * 0.052 + row * 0.95);
+      x === 0 ? c.moveTo(x, y) : c.lineTo(x, y);
+    }
+    c.stroke();
+  }
+  c.restore();
+
+  // ── Clear window strip (right ~18% — distinctive AUD polymer feature) ──────
+  const winX = W * 0.80;
+  // Semi-transparent tinted base
+  c.save();
+  c.fillStyle = 'rgba(255,255,255,0.28)';
+  c.fillRect(winX, 0, W - winX, H);
+  // Rainbow holographic shimmer
+  const holo = c.createLinearGradient(winX, 0, W, H);
+  holo.addColorStop(0.00, `rgba(${ri},${gi},${bi},0.25)`);
+  holo.addColorStop(0.20, 'rgba(255,255,180,0.35)');
+  holo.addColorStop(0.40, 'rgba(180,255,255,0.30)');
+  holo.addColorStop(0.60, `rgba(${ri},${gi},${bi},0.20)`);
+  holo.addColorStop(0.80, 'rgba(255,180,255,0.30)');
+  holo.addColorStop(1.00, 'rgba(180,220,255,0.28)');
+  c.fillStyle = holo; c.fillRect(winX, 0, W - winX, H);
+  // Window border line
+  c.strokeStyle = 'rgba(255,255,255,0.55)'; c.lineWidth = 1.5;
+  c.beginPath(); c.moveTo(winX, 0); c.lineTo(winX, H); c.stroke();
+  // Micro-pattern inside window (tiny repeated diamonds)
+  c.strokeStyle = 'rgba(255,255,255,0.20)'; c.lineWidth = 0.6;
+  for (let wy = 10; wy < H; wy += 14) {
+    for (let wx = winX + 8; wx < W - 6; wx += 14) {
+      c.beginPath();
+      c.moveTo(wx,    wy - 5);
+      c.lineTo(wx + 5, wy);
+      c.lineTo(wx,    wy + 5);
+      c.lineTo(wx - 5, wy);
+      c.closePath(); c.stroke();
+    }
+  }
+  c.restore();
+
+  // ── Polymer sheen (gloss streak across left portion) ──────────────────────
+  const sg = c.createLinearGradient(0, 0, W * 0.25, H * 0.6);
+  sg.addColorStop(0,   'rgba(255,255,255,0.22)');
+  sg.addColorStop(0.4, 'rgba(255,255,255,0.06)');
+  sg.addColorStop(1,   'rgba(255,255,255,0.00)');
+  c.fillStyle = sg; c.fillRect(0, 0, W * 0.78, H);
+
+  // ── Double border ─────────────────────────────────────────────────────────
+  c.strokeStyle = 'rgba(0,0,0,0.38)'; c.lineWidth = 5;
+  c.strokeRect(5, 5, W * 0.78 - 2, H - 10);
+  c.strokeStyle = 'rgba(0,0,0,0.20)'; c.lineWidth = 1.5;
+  c.strokeRect(11, 11, W * 0.78 - 14, H - 22);
+
+  // ── Portrait oval (engraved-style) ───────────────────────────────────────
+  const px = W * 0.185, py = H * 0.50, prx = W * 0.125, pry = H * 0.40;
+  c.save();
+  c.beginPath(); c.ellipse(px, py, prx, pry, 0, 0, Math.PI * 2);
+  // Oval surround ring
+  c.strokeStyle = `rgba(${Math.round(r*0.6)},${Math.round(g*0.6)},${Math.round(b*0.6)},0.7)`;
+  c.lineWidth = 2.5; c.stroke();
+  c.clip();
+  // Portrait background (slightly darker)
+  c.fillStyle = `rgba(${Math.round(r*0.78)},${Math.round(g*0.78)},${Math.round(b*0.78)},0.92)`;
+  c.fillRect(0, 0, W, H);
+  // Dense engraving hatching (simulates intaglio portrait)
+  for (let i = 0; i < 26; i++) {
+    const yl  = py - pry + i * (pry * 2 / 26);
+    const amp = 3.5 * Math.sin(i * 0.6);
+    c.strokeStyle = `rgba(0,0,0,${0.10 + 0.08 * Math.abs(Math.sin(i * 0.4))})`;
+    c.lineWidth = 0.85;
+    c.beginPath();
+    c.moveTo(px - prx + 6, yl + amp);
+    c.quadraticCurveTo(px, yl - amp * 0.5, px + prx - 6, yl + amp);
+    c.stroke();
+  }
+  // Eyes (subtle dark ovals)
+  c.fillStyle = 'rgba(0,0,0,0.28)';
+  c.beginPath(); c.ellipse(px - prx*0.22, py - pry*0.18, prx*0.10, pry*0.06, 0, 0, Math.PI*2); c.fill();
+  c.beginPath(); c.ellipse(px + prx*0.22, py - pry*0.18, prx*0.10, pry*0.06, 0, 0, Math.PI*2); c.fill();
+  c.restore();
+
+  // ── Denomination — large, bold ────────────────────────────────────────────
+  const dStr = `$${denom}`;
+  c.font = `bold ${Math.round(H * 0.52)}px Georgia, "Times New Roman", serif`;
+  c.fillStyle = 'rgba(0,0,0,0.22)'; c.textBaseline = 'middle'; c.textAlign = 'left';
+  c.fillText(dStr, W * 0.38, H * 0.50);
+
+  // Top-left corner denom
+  c.font = `bold ${Math.round(H * 0.19)}px Georgia, serif`;
+  c.fillStyle = 'rgba(0,0,0,0.22)'; c.textBaseline = 'top'; c.textAlign = 'left';
+  c.fillText(dStr, W * 0.37, H * 0.08);
+
+  // Bottom-right corner denom
+  c.textBaseline = 'bottom'; c.textAlign = 'right';
+  c.fillText(dStr, W * 0.76, H * 0.92);
+  c.textAlign = 'left';
+
+  // ── "AUSTRALIA" text ──────────────────────────────────────────────────────
+  c.font = `bold ${Math.round(H * 0.09)}px Georgia, serif`;
+  c.fillStyle = 'rgba(0,0,0,0.20)'; c.textBaseline = 'top';
+  c.fillText('AUSTRALIA', W * 0.37, H * 0.76);
+
+  // ── Serial-number lines ───────────────────────────────────────────────────
+  c.fillStyle = 'rgba(0,0,0,0.14)';
+  c.fillRect(W * 0.37, H * 0.60, W * 0.32, 2.5);
+  c.fillRect(W * 0.37, H * 0.68, W * 0.25, 2.5);
+
+  // ── Coloured security strip left of window ────────────────────────────────
+  const ss = c.createLinearGradient(W*0.765, 0, W*0.790, 0);
+  ss.addColorStop(0, 'rgba(255,255,255,0.0)');
+  ss.addColorStop(0.4, 'rgba(255,255,255,0.30)');
+  ss.addColorStop(1, 'rgba(255,255,255,0.0)');
+  c.fillStyle = ss; c.fillRect(W*0.762, 10, W*0.030, H - 20);
+
+  const t = new THREE.CanvasTexture(cv);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Renderer
+// ─────────────────────────────────────────────────────────────────────────────
+const wrap = document.getElementById('canvas-wrap');
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+wrap.appendChild(renderer.domElement);
+
+// CSS2D overlay for floating labels
+const labelRenderer = new CSS2DRenderer();
+labelRenderer.domElement.id = 'label-overlay';
+wrap.appendChild(labelRenderer.domElement);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Scene / Camera / Controls
+// ─────────────────────────────────────────────────────────────────────────────
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x10121a);
+scene.fog = new THREE.Fog(0x10121a, 12, 22);
+
+const camera = new THREE.PerspectiveCamera(52, 1, 0.01, 60);
+camera.position.set(2.2, 2.0, 3.6);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 0.8, 0);
+controls.enableDamping = true;
+controls.dampingFactor = 0.06;
+controls.autoRotate = true;
+controls.autoRotateSpeed = 0.5;
+controls.minDistance = 0.5;
+controls.maxDistance = 14;
+controls.maxPolarAngle = Math.PI / 2 - 0.02;
+renderer.domElement.addEventListener('pointerdown', () => {
+  controls.autoRotate = false;
+}, { once: true });
+
+function resize() {
+  const w = wrap.clientWidth, h = wrap.clientHeight;
+  if (!w || !h) return;
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+  renderer.setSize(w, h, false); // false: let CSS rule control display size
+  labelRenderer.setSize(w, h);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Lighting
+// ─────────────────────────────────────────────────────────────────────────────
+scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+
+const keyLight = new THREE.PointLight(0xffd4a0, 5, 16);
+keyLight.position.set(0, 2.85, 0);
+keyLight.castShadow = true;
+keyLight.shadow.mapSize.set(1024, 1024);
+keyLight.shadow.camera.near = 0.1;
+keyLight.shadow.camera.far  = 16;
+keyLight.shadow.bias = -0.002;
+scene.add(keyLight);
+
+const fillLight = new THREE.PointLight(0x6080c0, 1.5, 14);
+fillLight.position.set(-3, 1.5, 3);
+scene.add(fillLight);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Vault room
+// ─────────────────────────────────────────────────────────────────────────────
+const ROOM_W = 7, ROOM_D = 7, ROOM_H = 3;
+
+function makePlane(w, h, color, roughness) {
+  const m = new THREE.Mesh(
+    new THREE.PlaneGeometry(w, h),
+    new THREE.MeshStandardMaterial({ color, roughness, metalness: 0.02 })
+  );
+  m.receiveShadow = true;
+  return m;
+}
+
+const floor = makePlane(ROOM_W, ROOM_D, 0x2d2a1e, 0.92);
+floor.rotation.x = -Math.PI / 2;
+scene.add(floor);
+
+const backWall = makePlane(ROOM_W, ROOM_H, 0x1e1e1e, 0.90);
+backWall.position.set(0, ROOM_H / 2, -ROOM_D / 2);
+scene.add(backWall);
+
+const leftWall = makePlane(ROOM_D, ROOM_H, 0x1c1c1c, 0.90);
+leftWall.rotation.y = Math.PI / 2;
+leftWall.position.set(-ROOM_W / 2, ROOM_H / 2, 0);
+scene.add(leftWall);
+
+const rightWall = makePlane(ROOM_D, ROOM_H, 0x1c1c1c, 0.90);
+rightWall.rotation.y = -Math.PI / 2;
+rightWall.position.set(ROOM_W / 2, ROOM_H / 2, 0);
+scene.add(rightWall);
+
+const ceilPlane = makePlane(ROOM_W, ROOM_D, 0x141414, 0.85);
+ceilPlane.rotation.x = Math.PI / 2;
+ceilPlane.position.set(0, ROOM_H, 0);
+scene.add(ceilPlane);
+
+const grid = new THREE.GridHelper(ROOM_W, 14, 0x3d3a28, 0x2a2820);
+grid.position.y = 0.001;
+scene.add(grid);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Human figure (1.75 m scale reference)
+// ─────────────────────────────────────────────────────────────────────────────
+const person = new THREE.Group();
+
+function addLimb(geo, hexColor) {
+  const m = new THREE.Mesh(
+    geo,
+    new THREE.MeshStandardMaterial({ color: hexColor, roughness: 0.82 })
+  );
+  m.castShadow = true;
+  person.add(m);
+  return m;
+}
+
+// Legs (straight cylinders)
+addLimb(new THREE.CylinderGeometry(0.042, 0.036, 0.64, 8), 0x333344).position.set(-0.075, 0.32, 0);
+addLimb(new THREE.CylinderGeometry(0.042, 0.036, 0.64, 8), 0x333344).position.set( 0.075, 0.32, 0);
+
+// Torso
+addLimb(new THREE.CylinderGeometry(0.115, 0.100, 0.56, 8), 0x4a6a96).position.set(0, 0.92, 0);
+
+// Shoulder cross-bar (horizontal cylinder)
+const shoulder = addLimb(new THREE.CylinderGeometry(0.032, 0.032, 0.48, 7), 0x4a6a96);
+shoulder.rotation.z = Math.PI / 2;
+shoulder.position.set(0, 1.18, 0);
+
+// Arms (hanging from shoulders)
+addLimb(new THREE.CylinderGeometry(0.028, 0.024, 0.44, 7), 0x4a6a96).position.set(-0.20, 0.87, 0);
+addLimb(new THREE.CylinderGeometry(0.028, 0.024, 0.44, 7), 0x4a6a96).position.set( 0.20, 0.87, 0);
+
+// Neck
+addLimb(new THREE.CylinderGeometry(0.036, 0.036, 0.10, 7), 0xdfc090).position.set(0, 1.28, 0);
+
+// Head
+addLimb(new THREE.SphereGeometry(0.10, 14, 10), 0xe8c99a).position.set(0, 1.43, 0);
+
+// Hair (top hemisphere)
+const hairMesh = new THREE.Mesh(
+  new THREE.SphereGeometry(0.103, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.5),
+  new THREE.MeshStandardMaterial({ color: 0x2a1a0a, roughness: 0.9 })
+);
+hairMesh.position.set(0, 1.43, 0);
+hairMesh.castShadow = true;
+person.add(hairMesh);
+
+person.position.set(2.2, 0, 0);
+scene.add(person);
+
+const pDiv = document.createElement('div');
+pDiv.className = 'person-label';
+pDiv.textContent = '1.75m';
+const pLabel = new CSS2DObject(pDiv);
+pLabel.position.set(0, 1.60, 0);
+person.add(pLabel);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Stack group
+// ─────────────────────────────────────────────────────────────────────────────
+const stackGroup = new THREE.Group();
+scene.add(stackGroup);
+
+let activeTex = [];
+
+function fmtNum(n) {
+  if (n >= 1e12) return (n/1e12).toFixed(2) + 'T';
+  if (n >= 1e9)  return (n/1e9).toFixed(2)  + 'B';
+  if (n >= 1e6)  return (n/1e6).toFixed(2)  + 'M';
+  if (n >= 1e3)  return (n/1e3).toFixed(1)  + 'K';
+  return n.toLocaleString();
+}
+
+function clearGroup(g) {
+  g.traverse(obj => {
+    if (obj.geometry) obj.geometry.dispose();
+    if (obj.material) {
+      const ms = Array.isArray(obj.material) ? obj.material : [obj.material];
+      ms.forEach(m => m.dispose());
+    }
+  });
+  while (g.children.length) g.remove(g.children[0]);
+  activeTex.forEach(t => t.dispose());
+  activeTex = [];
+}
+
+function buildStacks() {
+  clearGroup(stackGroup);
+
+  const curr     = CURRENCIES[currKey];
+  const numBills = amount / curr.denom;
+  const totalMM  = numBills * curr.thick;
+  const numCols  = Math.max(1, Math.ceil(totalMM / MAX_STACK_MM));
+  const colMM    = totalMM / numCols;
+
+  const bW = curr.w * MM;                        // bill width  → X extent
+  const bH = curr.h * MM;                        // bill length → Z depth
+  const bT = curr.thick * MM;
+  const cH = Math.max(0.002, colMM * MM);        // column height (guard 0)
+  const gap = 0.025;
+
+  const baseCol  = new THREE.Color(curr.color);
+  const sideCol  = baseCol.clone().multiplyScalar(0.52);
+  const visLines = Math.max(8, Math.min(numBills, 70));
+
+  // Shared textures for this build
+  const sideTex = makeSideTex(baseCol, visLines);
+  const topTex  = makeTopTex(baseCol, curr.denom);
+  activeTex.push(sideTex, topTex);
+
+  // BoxGeometry(bW, cH, bH) face order:
+  //   [0]+X  [1]-X  →  narrow end faces  (bH × cH)
+  //   [2]+Y(top)    →  bill face          (bW × bH)
+  //   [3]-Y(bot)    →  underside
+  //   [4]+Z  [5]-Z  →  wide front/back   (bW × cH)  ← most visible
+  const endMat  = new THREE.MeshStandardMaterial({ color: sideCol, roughness: 0.84 });
+  const topMat  = new THREE.MeshStandardMaterial({ map: topTex,   roughness: 0.58 });
+  const botMat  = new THREE.MeshStandardMaterial({ color: sideCol, roughness: 0.90 });
+  const frontMat= new THREE.MeshStandardMaterial({ map: sideTex,   roughness: 0.72 });
+  const mats6   = [endMat, endMat, topMat, botMat, frontMat, frontMat];
+
+  // Arrange columns in a 2D grid (X × Z) so they form a block, not a line
+  const gridX = Math.ceil(Math.sqrt(numCols));
+  const gridZ = Math.ceil(numCols / gridX);
+  const totalGridW = gridX * bW + (gridX - 1) * gap;
+  const totalGridD = gridZ * bH + (gridZ - 1) * gap;
+  const startX = -totalGridW / 2 + bW / 2;
+  const startZ = -totalGridD / 2 + bH / 2;
+
+  for (let i = 0; i < numCols; i++) {
+    const ix = i % gridX;
+    const iz = Math.floor(i / gridX);
+    const col = new THREE.Group();
+    col.position.set(startX + ix * (bW + gap), 0, startZ + iz * (bH + gap));
+
+    // ── Main stack body ───────────────────────────────────────────────────────
+    const body = new THREE.Mesh(new THREE.BoxGeometry(bW, cH, bH), mats6);
+    body.position.y = cH / 2;
+    body.castShadow  = true;
+    body.receiveShadow = true;
+    col.add(body);
+
+    // ── Fanned cap (3 slightly splayed top bills) ─────────────────────────────
+    for (let k = 0; k < 3; k++) {
+      const ct = makeTopTex(baseCol, curr.denom);
+      activeTex.push(ct);
+      const cap = new THREE.Mesh(
+        new THREE.BoxGeometry(bW * 1.003, bT * 5, bH * 1.002),
+        [
+          new THREE.MeshStandardMaterial({ color: sideCol, roughness: 0.82 }),
+          new THREE.MeshStandardMaterial({ color: sideCol, roughness: 0.82 }),
+          new THREE.MeshStandardMaterial({ map: ct, roughness: 0.52 }),
+          new THREE.MeshStandardMaterial({ color: sideCol, roughness: 0.82 }),
+          new THREE.MeshStandardMaterial({ color: sideCol, roughness: 0.82 }),
+          new THREE.MeshStandardMaterial({ color: sideCol, roughness: 0.82 }),
+        ]
+      );
+      cap.position.set((k - 1) * 0.004, cH + bT * 2.5, (k - 1) * 0.002);
+      cap.rotation.y = (k - 1) * 0.018;
+      cap.castShadow = true;
+      col.add(cap);
+    }
+
+    stackGroup.add(col);
+  }
+
+  // Centred at room origin
+  stackGroup.position.set(0, 0, 0);
+
+  // ── Stats bar ────────────────────────────────────────────────────────────
+  const totalH = totalMM >= 1000
+    ? (totalMM / 1000).toFixed(2) + 'm'
+    : Math.round(totalMM) + 'mm';
+  const volCm3 = numBills * (curr.w / 10) * (curr.h / 10) * (curr.thick / 10);
+  const volStr = volCm3 >= 1e6 ? (volCm3/1e6).toFixed(2) + 'm³'
+               : volCm3 >= 1e3 ? (volCm3/1e3).toFixed(2) + 'L'
+               : volCm3.toFixed(0) + 'cm³';
+  const wStr   = numBills >= 1e6 ? (numBills/1e6).toFixed(2) + 't'
+               : numBills >= 1e3 ? (numBills/1e3).toFixed(2) + 'kg'
+               : numBills.toFixed(0) + 'g';
+
+  document.getElementById('s-notes').textContent  = fmtNum(Math.round(numBills));
+  document.getElementById('s-stacks').textContent = numCols;
+  document.getElementById('s-height').textContent = totalH;
+  document.getElementById('s-vol').textContent    = volStr;
+  document.getElementById('s-weight').textContent = wStr;
+
+  const warn = document.getElementById('cap-warn');
+  if (numCols > 1) {
+    warn.style.display = 'block';
+    warn.textContent = `⚠ Stack too tall — split into ${numCols} columns · each ${(colMM/1000).toFixed(2)}m`;
+  } else {
+    warn.style.display = 'none';
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// UI wiring
+// ─────────────────────────────────────────────────────────────────────────────
+const sel = document.getElementById('currency-select');
+Object.entries(CURRENCIES).forEach(([k, c]) => {
+  const opt = document.createElement('option');
+  opt.value = k;
+  opt.textContent = `🇦🇺 ${c.label}`;
+  sel.appendChild(opt);
+});
+
+function syncCurrency() {
+  const c = CURRENCIES[currKey];
+  document.getElementById('currency-symbol').textContent = c.symbol;
+  document.getElementById('currency-name').textContent   = c.name;
+}
+
+sel.addEventListener('change', e => {
+  currKey = e.target.value;
+  syncCurrency();
+  buildStacks();
+});
+
+const amtInput = document.getElementById('amount-input');
+amtInput.addEventListener('input', e => {
+  const raw = e.target.value.replace(/,/g, '');
+  if (/^\d*$/.test(raw)) {
+    amount = parseInt(raw) || 0;
+    e.target.value = raw ? parseInt(raw).toLocaleString() : '';
+    buildStacks();
+  }
+});
+
+document.querySelectorAll('.quick-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.quick-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    amount = parseInt(btn.dataset.val);
+    amtInput.value = amount.toLocaleString();
+    buildStacks();
+  });
+});
+
+window.addEventListener('resize', resize);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Render loop
+// ─────────────────────────────────────────────────────────────────────────────
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+  labelRenderer.render(scene, camera);
+}
+
+resize();
+buildStacks();
+animate();
+</script>
+</body>
+</html>
