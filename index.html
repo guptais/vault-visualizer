@@ -139,6 +139,8 @@ input[type=text] { width: 140px; }
   <div class="ctrl-group" id="coin-denom-group" style="display:none">
     <label>Coin</label>
     <div class="mode-btns">
+      <button class="mode-btn" data-cdenom="0.20">20¢</button>
+      <button class="mode-btn" data-cdenom="0.50">50¢</button>
       <button class="mode-btn" data-cdenom="1">$1</button>
       <button class="mode-btn active" data-cdenom="2">$2</button>
     </div>
@@ -211,12 +213,14 @@ const noteTexCache = {};  // denom → THREE.Texture (survives rebuilds)
 let currKey   = 'AUD_100';
 let amount    = 1_000_000;
 let viewMode  = 'bills';
-let coinDenom = 2; // $1 or $2
+let coinDenom = 2; // coin face value
 
-// AUD coin physical specs: [diam_mm, thick_mm, weight_g]
+// AUD coin physical specs — silver: cupro-nickel, gold: aluminium bronze
 const COIN_SPECS = {
-  1: { r: 0.0125, t: 0.0028, g: 9.0,  color: 0xC8960A }, // $1: 25mm, 2.8mm, 9g
-  2: { r: 0.01025, t: 0.003, g: 6.6,  color: 0xB8860B }, // $2: 20.5mm, 3mm, 6.6g
+  0.20: { r: 0.014325, t: 0.0025, g: 11.31, color: 0xB0B8C0, silver: true  }, // 20c: 28.65mm, 2.5mm
+  0.50: { r: 0.015825, t: 0.0032, g: 15.55, color: 0xA8B0B8, silver: true  }, // 50c: 31.65mm, 3.2mm
+  1:    { r: 0.0125,   t: 0.0028, g:  9.0,  color: 0xC8960A, silver: false }, // $1:  25mm,    2.8mm
+  2:    { r: 0.01025,  t: 0.003,  g:  6.6,  color: 0xB8860B, silver: false }, // $2:  20.5mm,  3mm
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -442,23 +446,25 @@ function getTopTex(baseCol, denom) {
   return noteTexCache[denom];
 }
 
-// Gold coin face texture for the pile
-function makeCoinTex() {
+// Coin face texture — gold ($1/$2) or silver (20c/50c)
+function makeCoinTex(silver = false) {
   const cv = document.createElement('canvas');
   cv.width = cv.height = 256;
   const c = cv.getContext('2d');
+  const [hi, mid, lo, rim, shadow] = silver
+    ? ['#E8EEF4', '#B8C4CC', '#8A9AA8', '#6A7A88', 'rgba(40,50,60,0.55)']
+    : ['#FFF4B0', '#F0C030', '#C8960A', '#7A5C10', 'rgba(90,55,0,0.58)'];
   const grd = c.createRadialGradient(96, 80, 10, 128, 128, 128);
-  grd.addColorStop(0,   '#FFF4B0');
-  grd.addColorStop(0.4, '#F0C030');
-  grd.addColorStop(0.8, '#C8960A');
-  grd.addColorStop(1,   '#8B6914');
+  grd.addColorStop(0, hi); grd.addColorStop(0.4, mid);
+  grd.addColorStop(0.8, lo); grd.addColorStop(1, rim);
   c.fillStyle = grd;
   c.beginPath(); c.arc(128, 128, 122, 0, Math.PI * 2); c.fill();
-  c.strokeStyle = '#7A5C10'; c.lineWidth = 8;
+  c.strokeStyle = rim; c.lineWidth = 8;
   c.beginPath(); c.arc(128, 128, 118, 0, Math.PI * 2); c.stroke();
-  c.strokeStyle = 'rgba(255,240,100,0.45)'; c.lineWidth = 3;
+  c.strokeStyle = silver ? 'rgba(255,255,255,0.3)' : 'rgba(255,240,100,0.45)';
+  c.lineWidth = 3;
   c.beginPath(); c.arc(128, 128, 100, 0, Math.PI * 2); c.stroke();
-  c.fillStyle = 'rgba(90,55,0,0.58)';
+  c.fillStyle = shadow;
   c.font = 'bold 100px Georgia, serif';
   c.textAlign = 'center'; c.textBaseline = 'middle';
   c.fillText('$', 128, 136);
@@ -493,7 +499,7 @@ function buildCoinPile() {
   const MAX_VIS = 50000;
   const vis = Math.min(numCoins, MAX_VIS);
 
-  const coinTex = makeCoinTex();
+  const coinTex = makeCoinTex(spec.silver);
   activeTex.push(coinTex);
 
   const geo     = new THREE.CylinderGeometry(COIN_R, COIN_R, COIN_T, 18);
@@ -505,15 +511,18 @@ function buildCoinPile() {
 
   const dummy = new THREE.Object3D();
   for (let i = 0; i < vis; i++) {
-    const r  = maxR * Math.pow(Math.random(), 0.65); // denser at center
+    // Uniform over cone surface area so coins cover the whole visible pile
+    const r  = maxR * Math.sqrt(Math.random());
     const θ  = Math.random() * Math.PI * 2;
-    const cH = maxH * Math.max(0, 1 - r / maxR);    // cone profile
-    const y  = COIN_T / 2 + Math.random() * Math.max(cH, COIN_T * 2);
+    // Place coin AT the cone surface, ± a couple coin-thicknesses so
+    // it looks like 2-3 settled layers rather than a single floating sheet
+    const surfH = maxH * Math.max(0, 1 - r / maxR);
+    const y  = Math.max(COIN_T / 2, surfH + (Math.random() - 0.6) * COIN_T * 5);
     dummy.position.set(r * Math.cos(θ), y, r * Math.sin(θ));
     dummy.rotation.set(
-      (Math.random() - 0.5) * 0.4,
+      (Math.random() - 0.5) * 0.10, // nearly flat — settled coins
       Math.random() * Math.PI * 2,
-      (Math.random() - 0.5) * 0.4
+      (Math.random() - 0.5) * 0.10
     );
     dummy.updateMatrix();
     mesh.setMatrixAt(i, dummy.matrix);
@@ -533,7 +542,8 @@ function buildCoinPile() {
              : wKg >= 1   ? wKg.toFixed(1)+'kg'
              : (wKg*1000).toFixed(0)+'g';
 
-  document.getElementById('sl-notes').textContent  = `$${coinDenom} Coins`;
+  const denomLabel = coinDenom < 1 ? `${coinDenom * 100}¢` : `$${coinDenom}`;
+  document.getElementById('sl-notes').textContent  = `${denomLabel} Coins`;
   document.getElementById('sl-stacks').textContent = 'Pile Radius';
   document.getElementById('sl-height').textContent = 'Pile Height';
   document.getElementById('s-notes').textContent   = fmtNum(numCoins);
@@ -923,7 +933,7 @@ document.querySelectorAll('[data-cdenom]').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('[data-cdenom]').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
-    coinDenom = parseInt(btn.dataset.cdenom);
+    coinDenom = parseFloat(btn.dataset.cdenom);
     rebuild();
   });
 });
